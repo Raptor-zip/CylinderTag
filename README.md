@@ -147,3 +147,39 @@ If you utilize this code for any academic purposes, kindly reference the followi
   publisher={IEEE}
 }
 ```
+
+### Additional real-video check: upstream sample
+
+The unchanged upstream [test.avi](https://github.com/ShaoanWang/CylinderTag/blob/main/test.avi)
+contains 259 frames at 1920×1200. All three methods receive the full canonical
+41-ID dictionary, scale 1, threshold window 5, refinement enabled with radius 5;
+the robust path retains its default multiple windows. No tuning, ROI or tracking
+is added for this clip.
+
+| Method | Frames with detections | Detection availability | Output IDs |
+| --- | ---: | ---: | --- |
+| Original `8fb42c9` | 259/259 | 100.00% | 5 only |
+| Bug fixes #12 | 259/259 | 100.00% | 5 only |
+| Robust opt-in #13 | 245/259 | 94.59% | 5 only |
+
+**The robust path regresses by 14 frames (5.41 percentage points) on this sample.**
+The input has no supplied ID/corner ground-truth annotations, so these are
+**detection-availability counts, not independently verified recognition accuracy**.
+Agreement on ID 5 is not an independent ground-truth label. The result argues
+against replacing the default detector. In five missed frames the selected
+threshold's largest candidate group contains only three columns; the four-column
+minimum is a possible contributor, but all rejection causes have not been isolated.
+
+```bash
+python3 report/compare_sample_videos.py test.avi \
+  --original out/fair_comparison/original_build/fair_video \
+  --bugfix out/fair_comparison/bugfix_build/fair_video \
+  --improved /path/to/robust-pr/cylindertag_video --output out/public_samples
+python3 report/render_sample_comparison.py
+```
+
+The script records SHA-256 hashes and exact commands, evaluates every frame, and
+writes JSON/CSV summaries. Generated comparison video:
+`out/public_samples/test_comparison.mp4`. The report PDF includes the regression.
+Upstream's recursive file tree and releases and the related public experiment
+repository were checked; this was the only additional compatible real video found.

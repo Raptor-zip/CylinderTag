@@ -218,20 +218,73 @@ frame 131（約4.53秒）は改善版でも未検出である。
 
 \clearpage
 \normalsize
-\section*{6. 出力と再現方法}
-\subsection*{6.1 主な成果物}
+\section*{6. 追加評価：公式サンプル動画}
+追加の実動画として、元リポジトリの \texttt{test.avi} を使用した。
+1920\,$\times$\,1200、259フレーム、約13秒の円筒マーカー回転動画である。
+元コミット \texttt{8fb42c9} の動画とSHA-256が一致し、画像の加工・切り出し・鏡像化をせず、
+全41 IDを含む元の辞書を3方式へそのまま渡した。
+入力倍率1、閾値窓5、辺補正あり・探索半径5を共通とし、改善版は既定の複数閾値を使った。
+閾値の追加調整は行っていない。
+
+\begin{table}[H]\centering
+\begin{tabular}{lrrr}\toprule
+方式 & 検出フレーム / 259 & 検出フレーム率 & 出力ID\\\midrule
+元実装 \texttt{8fb42c9} & 259 & 100.00\% & 5のみ\\
+バグ修正のみ PR \#12 & 259 & 100.00\% & 5のみ\\
+改善版 PR \#13 & 245 & 94.59\% & 5のみ\\\bottomrule
+\end{tabular}
+\caption{公式サンプルでの追加比較。正解ラベルがないため認識の正解率とは区別する。}
+\end{table}
+
+\textbf{改善版はこの動画で14フレーム悪化した。}
+検出が出たこと自体はID・位置の正しさを保証しない。
+付属する正解ID・位置の注釈は見当たらず、ID 5という出力の一致も独立した正解ラベルではない。
+実物は動画全体で回転しており、複数箇所を目視確認したが、全フレームの角点を人手で注釈した評価ではない。
+本動画には閾値を合わせ込まず、前の印刷動画に対して開発した実装をそのまま使った。
+
+\begin{figure}[H]\centering
+\fig{.90\linewidth}{public_sample_timeline.png}
+\caption{全259フレーム。青は検出あり、赤は検出なし。直前の結果で補間していない。}
+\end{figure}
+
+\begin{figure}[H]\centering
+\begin{minipage}{.23\linewidth}\centering
+\fig{.55\linewidth}{public_sample_0000.png}\\\small frame 0
+\end{minipage}\hspace{6mm}
+\begin{minipage}{.23\linewidth}\centering
+\fig{.55\linewidth}{public_sample_0093.png}\\\small frame 93
+\end{minipage}
+\begin{minipage}{.45\linewidth}\small
+frame 0は3方式で検出、frame 93は元実装とバグ修正版だけで検出した。
+右画像は同一の固定範囲を原画像から切り出したもので、検出結果の代用ではない。
+\end{minipage}
+\caption{公式動画の原画像。比較用の切り出しは解析入力には使用していない。}
+\end{figure}
+
+\smallnote{未検出はフレーム3, 12, 13, 15, 16, 56, 80, 93, 96, 109, 157, 164, 174, 220。
+このうち5フレームでは、診断用に選択された閾値の最大グループが3列だった。
+4列以上の支持を要求する現在の方針は部分的な見え方に不利になり得るが、
+残る原因の断定には各閾値・各仮説の棄却理由を追加記録する必要がある。
+総合すると印刷動画での改善が別動画へ一律に一般化するとは言えず、既定APIの置換は見送る。
+元リポジトリの全ツリー・リリースと関連実験リポジトリを調べ、今回利用できた同一辞書の別実動画は1本だった。}
+
+\clearpage
+\normalsize
+\section*{7. 出力と再現方法}\small
+\subsection*{7.1 主な成果物}
 \noindent\begin{tabularx}{\linewidth}{@{}p{31mm}X@{}}\toprule
 種類 & リポジトリルートからのパス\\\midrule
 改善後の動画 & \path{out/fair_comparison/IMG_2422_improved.mp4}\\
 変更前後の比較 & \path{out/fair_comparison/IMG_2422_fair_comparison.mp4}\\
 全フレームの検出 & \path{out/fair_comparison/improved_mirror.csv}、\path{improved_mirror.jsonl}\\
 中間処理の記録 & 同ディレクトリの \path{improved_mirror.stages.jsonl} と \path{improved_mirror_frame_*.png}\\
+公式動画比較 & \path{out/public_samples/test_comparison.mp4} と同フォルダの \path{summary.json}\\
 集計値 & \path{report/generated/results.json}\\
 レポート & \path{report/cylindertag_report.tex} と同名PDF\\
 修正版試験片 & \path{models/cylindertag_d30.py}、\path{models/cylindertag_d30.stl}\\\bottomrule
 \end{tabularx}
 
-\subsection*{6.2 実行例}
+\subsection*{7.2 実行例}
 OpenCV 4.5.4、Ceres 2.0、C++17、ffmpeg、Python の OpenCV・NumPy・Matplotlib、
 LuaLaTeX を使用した。実行はリポジトリルートから行う。
 \begin{Verbatim}[fontsize=\scriptsize,frame=single]
@@ -255,12 +308,17 @@ lualatex -interaction=nonstopmode -halt-on-error cylindertag_report.tex
 図の生成器は出力CSV/JSONLを読み、集計値を数値マクロとしてLaTeXへ渡す。
 各MP4について全266フレームを再デコードして確認し、PDFはPNGへ書き出して目視確認した。}
 
-\subsection*{6.3 次に検証すべきこと}
-今後は、別動画を使い、距離・照明・角度を固定した評価セットを用意する。
+\subsection*{7.3 次に検証すべきこと}
+公式サンプルでの悪化を踏まえ、さらに別動画と正解注釈を用意し、距離・照明・角度を固定した評価セットを整える。
 小さい列については多段解像度の候補探索と辺位置の不確かさを考慮した照合、
 隣接列が欠ける場合の間隔推定をさらに改善する余地がある。
 ArUco/AprilTagとの実測比較はまだ行っていない。
 本実装はその検出の考え方を参考にしたもので、同等の性能を示したものではない。
+
+公式サンプルは元リポジトリの \href{https://github.com/ShaoanWang/CylinderTag/blob/main/test.avi}{test.avi}。
+追加比較の再実行は \path{report/compare_sample_videos.py --help} を参照。
+動画と辞書・実行ファイルのSHA-256、全フレームの集計、実行コマンドを保存する。
+比較動画・図の再生成は \path{report/render_sample_comparison.py} で行う。
 
 \begin{thebibliography}{9}\small
 \bibitem{aruco} OpenCV, ``Detection of ArUco Markers,'' OpenCV 4.5.4 documentation.
