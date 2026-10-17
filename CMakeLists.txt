@@ -26,3 +26,12 @@ add_executable(${PROJECT_NAME}
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS} ${CERES_LIBRARIES})
+
+# Headless detector for recorded videos (no camera calibration / pose required).
+add_executable(cylindertag_video
+    video_detect.cpp
+    CylinderTag.cpp
+    corner_detector.cpp
+    pose_estimation.cpp
+)
+target_link_libraries(cylindertag_video ${OpenCV_LIBS} ${CERES_LIBRARIES})
