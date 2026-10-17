@@ -29,15 +29,17 @@ def metrics(folder, name):
                 wrong=sum(bool(x-{0}) for x in ids))
 
 
-runs = [('IMG_2422', 'baseline'), ('IMG_2422_improved', 'fullres'),
-        ('IMG_2422_improved', 'mirror_probe'), ('IMG_2422_improved', 'softdecode'),
-        ('IMG_2422_improved', 'gradient'), ('IMG_2422_improved', 'localcontrast'),
-        ('IMG_2422_improved', 'improved')]
-result = {'actual': [metrics(*x) for x in runs]}
-labels = json.loads((ROOT/'out/validation/labels.json').read_text())
+runs = [('fair_comparison', 'original_verified'), ('fair_comparison', 'bugfix_only'),
+        ('fair_comparison', 'improved_mirror')]
+result = {'actual': [metrics(*x) for x in runs],
+          'protocol': json.loads((ROOT/'out/fair_comparison/measurement_manifest.json').read_text()),
+          'withdrawn_baseline': {'id0': 1, 'frames': 266,
+              'reason': 'Printed pattern and dictionary had opposite reflection; excluded from performance comparison'}}
+labels = json.loads((ROOT/'out/validation_canonical/labels.json').read_text())
+assert all(not row.get('mirrored', False) for row in labels)
 result['synthetic'] = []
 for name in ['legacy', 'improved']:
-    _, dets = records('validation', name)
+    _, dets = records('validation_canonical', name)
     assert len(dets) == len(labels) == 200
     counts = dict(name=name, positives=164, correct=0, wrong=0, negatives=36, negative_fp=0,
                   near_correct=0, far_correct=0, mirror_errors=0)
@@ -57,27 +59,27 @@ result['decoder_cases'] = 984
 
 # Actual intermediate buffers from frame 87, cropped identically to show bars.
 for stage in ['01_gray','02_binary','03_quads','04_pairs','05_groups','06_decoded']:
-    image=cv2.imread(str(ROOT/'out/IMG_2422_improved'/f'improved_frame_000087_{stage}.png'))
+    image=cv2.imread(str(ROOT/'out/fair_comparison'/f'improved_mirror_frame_000087_{stage}.png'))
     assert image is not None
     crop=image[225:495,175:410]
     cv2.imwrite(str(DEST/f'pipeline_{stage}.png'), crop)
 
 # Identical frame: old and improved overlays.
-for folder,name,out in [('IMG_2422','baseline','before'),('IMG_2422_improved','improved','after')]:
+for folder,name,out in [('fair_comparison','original_verified','before'),('fair_comparison','improved_mirror','after')]:
     cap=cv2.VideoCapture(str(ROOT/'out'/folder/(name+'.avi')))
     cap.set(cv2.CAP_PROP_POS_FRAMES,87)
     ok,img=cap.read();cap.release();assert ok
     cv2.imwrite(str(DEST/(out+'.png')),img[225:495,160:460])
 
 # A real failure near t=4.53 s, never replaced by a tracked estimate.
-cap=cv2.VideoCapture(str(ROOT/'out/IMG_2422_improved/improved.avi'))
+cap=cv2.VideoCapture(str(ROOT/'out/fair_comparison/improved_mirror.avi'))
 cap.set(cv2.CAP_PROP_POS_FRAMES,131);ok,img=cap.read();cap.release();assert ok
 cv2.imwrite(str(DEST/'failure.png'), img)
 cv2.imwrite(str(DEST/'failure_crop.png'), img[220:500,100:380])
 
 plt.rcParams.update({'font.family':'DejaVu Sans','font.size':10})
 fig,axes=plt.subplots(2,1,figsize=(9,3.6),sharex=True,constrained_layout=True)
-for ax,(folder,name),title in zip(axes,[('IMG_2422','baseline'),('IMG_2422_improved','improved')],['Original detector','Improved detector']):
+for ax,(folder,name),title in zip(axes,[('fair_comparison','original_verified'),('fair_comparison','improved_mirror')],['Original: mirror-corrected dictionary','Improved: same dictionary']):
     rows,dets=records(folder,name)
     times=[float(r['time_seconds']) for r in rows]
     good=[int(any(m['id']==0 for m in r['markers'])) for r in dets]
@@ -89,20 +91,8 @@ for ax,(folder,name),title in zip(axes,[('IMG_2422','baseline'),('IMG_2422_impro
 axes[-1].set_xlabel('Time (s), normalized to average FPS')
 fig.savefig(DEST/'timeline.png',dpi=180);plt.close(fig)
 
-# Stage retention: different pixel resolutions, so counts are diagnostic only.
-fig,ax=plt.subplots(figsize=(7.7,2.6),constrained_layout=True)
-keys=['quads','features','valid_columns'];titles=['Quadrilaterals','Paired columns','Valid edge geometry']
-x=np.arange(len(keys));width=.32
-for offset,name,label,color in [(-width/2,'instrumented','Original (half resolution)','#999999'),(width/2,'improved','Improved (selected window)','#168755')]:
-    rows,_=records('IMG_2422_improved',name)
-    values=[np.mean([int(r[k]) for r in rows]) for k in keys]
-    bars=ax.bar(x+offset,values,width,label=label,color=color)
-    ax.bar_label(bars,fmt='%.1f',padding=3,fontsize=9)
-ax.set_xticks(x,titles);ax.set_ylabel('Mean count / frame');ax.legend(fontsize=8,frameon=False,loc='upper left')
-ax.set_ylim(0,55);fig.savefig(DEST/'stage_counts.png',dpi=180);plt.close(fig)
-
 # Independent synthetic validation example, not an image made by the detector.
-cap=cv2.VideoCapture(str(ROOT/'out/validation/validation.avi'))
+cap=cv2.VideoCapture(str(ROOT/'out/validation_canonical/validation.avi'))
 cap.set(cv2.CAP_PROP_POS_FRAMES,0);ok,img=cap.read();cap.release();assert ok
 cv2.imwrite(str(DEST/'synthetic.png'),img)
 
@@ -126,6 +116,11 @@ before=result['actual'][0];after=result['actual'][-1]
 macros={'BeforeCount':before['id0'],'AfterCount':after['id0'],'BeforeWrong':before['wrong'],'AfterWrong':after['wrong'],
         'FrameCount':after['frames'],'BeforeRate':f"{100*before['id0']/before['frames']:.2f}",
         'AfterRate':f"{100*after['id0']/after['frames']:.2f}",
+        'ImprovementPoints':f"{100*(after['id0']-before['id0'])/after['frames']:.2f}",
+        'BeforeMissing':before['frames']-before['id0'],'AfterMissing':after['frames']-after['id0'],
+        'BugfixCount':result['actual'][1]['id0'],'BugfixWrong':result['actual'][1]['wrong'],
+        'SyntheticRate':f"{100*result['synthetic'][1]['correct']/164:.1f}",
+        'SyntheticNear':result['synthetic'][1]['near_correct'],'SyntheticFar':result['synthetic'][1]['far_correct'],
         'SyntheticBefore':result['synthetic'][0]['correct'],'SyntheticAfter':result['synthetic'][1]['correct'],
         'SyntheticWrongBefore':result['synthetic'][0]['wrong'],'SyntheticWrongAfter':result['synthetic'][1]['wrong']}
 (DEST/'metrics.tex').write_text('\n'.join(f'\\newcommand{{\\{k}}}{{{v}}}' for k,v in macros.items())+'\n')

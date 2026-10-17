@@ -68,6 +68,8 @@ def render(codes, yaw, distance, mirror, roll):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('output', type=Path)
+    parser.add_argument('--canonical-only', action='store_true',
+                        help='Render every marker in dictionary orientation for like-for-like detector comparison')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     root = Path(__file__).resolve().parents[1]
@@ -80,7 +82,7 @@ def main():
     rng = np.random.default_rng(731)
     for marker_id, codes in enumerate(dictionary):
         for variant in range(4):
-            mirror = bool(variant % 2)
+            mirror = bool(variant % 2) and not args.canonical_only
             image = render(codes, (marker_id * .271 + variant * .39) % (2 * math.pi),
                            160 if variant < 2 else 230, mirror, -12 if variant % 2 else 9)
             noise = rng.normal(0, 1.2, image.shape)

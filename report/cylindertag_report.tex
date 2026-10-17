@@ -18,15 +18,15 @@
 \begin{document}
 \begin{center}
 {\LARGE\bfseries CylinderTag 検出アルゴリズムの改善}\\[3mm]
-{\large 印刷試験片の動画解析と処理パイプラインの可視化}\\[2mm]
+{\large 印刷試験片の動画解析と処理パイプラインの可視化（訂正版）}\\[2mm]
 2026年10月18日\quad 原動画：ユーザー提供\quad 解析・実装：Codex
 \end{center}
 
 \section*{1. 結果と評価対象}
 白黒 PLA の薄い試験片を円筒に貼った動画 \texttt{IMG\_2422.mov} を対象に、
-候補抽出から辞書照合までを改善した。結果は\textbf{ID 0 の出力が
+両方式へ同じ鏡像補正済みの全41 ID辞書を渡して再測定した。結果は\textbf{ID 0 の出力が
 \BeforeCount/\FrameCount\ から \AfterCount/\FrameCount\ フレームに増加}し、
-別 ID の出力は \BeforeWrong\ から \AfterWrong\ フレームに減少した。
+増加幅は\ImprovementPoints ポイントで、別 ID の出力は \BeforeWrong\ から \AfterWrong\ フレームに減少した。
 追跡による補間や、直前の ID を表示し続ける処理は使っていない。
 
 \begin{table}[H]\centering
@@ -35,26 +35,24 @@
 入力フレーム数 & \FrameCount & \FrameCount\\
 ID 0 が出たフレーム & \BeforeCount\ (\BeforeRate\%) & \AfterCount\ (\AfterRate\%)\\
 別 ID が出たフレーム & \BeforeWrong & \AfterWrong\\
-ID 0 が出なかったフレーム & 265 & 96\\\bottomrule
+ID 0 が出なかったフレーム & \BeforeMissing & \AfterMissing\\\bottomrule
 \end{tabular}
-\caption{同一動画の全フレーム比較。率の分母は266フレーム。}
+\caption{同一動画・同一の鏡像補正済み辞書による全フレーム比較。}
 \end{table}
 
 \begin{figure}[H]\centering
 \begin{minipage}{.43\linewidth}\centering
-\fig{.86\linewidth}{before.png}\\\small 従来版：ID が出ない
+\fig{.86\linewidth}{before.png}\\\small 従来版：鏡像補正済み辞書
 \end{minipage}\hspace{6mm}
 \begin{minipage}{.43\linewidth}\centering
-\fig{.86\linewidth}{after.png}\\\small 改善版：ID 0、鏡像として照合
+\fig{.86\linewidth}{after.png}\\\small 改善版：同じ辞書で照合
 \end{minipage}
-\caption{同じ frame 87（約3.01秒）。表示領域だけを同一範囲で切り出した。}
+\caption{同じ frame 87（約3.01秒）。列数表示は従来版が列群の要素数、改善版が支持列数。}
 \end{figure}
 
-\textbf{主な原因は三つあった。}
-(1) 入力の強制1/2縮小による細い模様の情報損失、
-(2) 初版 STL の鏡像、(3) 列の幾何判定と辞書照合の不具合である。
-しきい値だけを緩めると別 ID も採用しやすくなるため、
-候補を拾う処理と、曖昧な ID を棄却する処理を分けた。
+\textbf{比較条件の訂正。}初版レポートの0.38\%は、印刷物と辞書の鏡像が一致していない条件だった。
+この値を改善前の性能とした比較を撤回する。元コードを新規ビルドした版と反復実行で、
+鏡像補正後の\BeforeRate\%を再現した。動画そのものの反転・切り出し、ID 0だけの辞書への制限は行っていない。
 
 \smallnote{入力は480\,$\times$\,854、266フレーム、約9.205秒。
 期待 ID は生成元の辞書から0とした。本動画を開発にも使用しているため、
@@ -94,7 +92,7 @@ ArUco の輪郭候補抽出・局所二値化・射影正規化、および Apri
 \small
 二値化のタイル幅は5・11・21ピクセルの3通りで処理し、重複する検出は空間的に統合する。
 図は最も強い候補を持つ一つのタイル幅の中間状態と、全タイル幅を統合した最終結果である。
-フレーム0・62・87・131・200・250の PNG を保存した。初期段階で候補がなくなるフレームでは、
+再測定ではフレーム87の PNG を保存した。初期段階で候補がなくなるフレームでは、
 後続段階の画像は存在しないことがある。PNG と併せて、全フレームの候補数・列符号・交比も出力した。
 \normalsize
 
@@ -130,8 +128,8 @@ MATLAB の画像座標は下向きが正、CAD を上面から見ると上向き
 列ごとの符号判定 & 交比がどの区間にも入らない場合、直前の列の符号が残っていた。各列を独立に測定する方式へ置換した。\\
 右側の幾何判定 & 右側の判定にも左側の中点を使用していた。列全体の四点から射影変換して両側を判定する。\\
 列の間隔推定 & 幅の平均の括弧が欠け、片側だけ半分にしていた。両側幅の平均へ修正した。\\
-ID照合 & 少数列で弱い一致を採用し、次点スコアの更新にも問題があった。全候補を連続値で評価して曖昧な結果を棄却する。\\
-配列の大きさ & 列の結合用配列が100要素固定だった。候補数に応じた配列へ変更した。\\\bottomrule
+ID照合 & 鏡像を揃えても別 ID の出力が残る。実験版では全候補を連続値で評価して曖昧な結果を棄却する。採用方式の変更はバグ修正PRに含めない。\\
+配列の大きさ & 列の結合用配列が100要素固定だった。実験版では候補数に応じた配列へ変更した。\\\bottomrule
 \end{tabularx}
 
 \clearpage
@@ -163,20 +161,20 @@ $e_k=((r_L-\hat r_L)^2+(r_R-\hat r_R)^2)/2$ を基本誤差とする。
 最低4列について、前半・後半の整合と左右それぞれの交比誤差0.09未満を要求する。
 2列だけの一致は採用しない。これらは開発用のしきい値であり、あらゆる撮影条件で最適とはしていない。
 
-\subsection*{4.3 開発中の比較結果}
+\subsection*{4.3 鏡像条件を揃えた再測定とPRの範囲}
 \begin{table}[H]\centering\small
 \begin{tabular}{lrr}\toprule
-処理の構成 & ID 0 のフレーム数 & 別 ID のフレーム数\\\midrule
-従来版 & 1 & 55\\
-原寸処理＋従来の照合 & 1 & 20\\
-上記を鏡像の辞書で照合 & 33 & 14\\
-幾何判定修正＋交比の連続値照合 & 126 & 3\\
-輪郭候補＋勾配からの辺補正 & 166 & 3\\
-局所コントラスト二値化 & 169 & 4\\
-最終版（複数窓・組み立て・慎重な採用） & \AfterCount & \AfterWrong\\\bottomrule
+同じ鏡像補正辞書を使った構成 & ID 0 & 別 ID\\\midrule
+元コード（\texttt{8fb42c9}、新規ビルド） & \BeforeCount & \BeforeWrong\\
+バグ修正PRのみ（\texttt{6552d0c}） & \BugfixCount & \BugfixWrong\\
+実験的な検出器改善版 & \AfterCount & \AfterWrong\\\bottomrule
 \end{tabular}
-\caption{すべて同一266フレーム。構成間に複数の変更を含むため、単一要因の独立した寄与を測った表ではない。}
+\caption{すべて同一266フレーム、入力倍率1・基準窓5・辺補正あり。}
 \end{table}
+バグ修正PRは\href{https://github.com/ShaoanWang/CylinderTag/pull/12}{ShaoanWang/CylinderTag \#12}。
+画像端・右中点・符号残留・幅平均・検出結果残留の5件を、修正前に失敗し修正後に成功するテストで確認した。
+複数窓や鏡像対応、辞書照合方式の変更はこのPRに含めていない。
+元コードからの改善幅は\ImprovementPoints ポイントであり、初版の大幅改善という説明は成立しない。
 
 \clearpage
 \section*{5. 検証結果と残っている失敗}
@@ -192,6 +190,7 @@ $e_k=((r_L-\hat r_L)^2+(r_R-\hat r_R)^2)/2$ を基本誤差とする。
 
 別に、円筒へ模様を射影した合成画像を独立した Python 描画器で作成した。
 41 ID\,$\times$\,4条件の164画像と、無地・矩形群・縦縞の負例36画像を使用した。
+比較用画像はすべて辞書と同じ向きに生成し、両方式へ同じ画像を渡した。鏡像ケースは復号の単体テストに分離した。
 \begin{table}[H]\centering
 \begin{tabular}{lrr}\toprule
 合成画像での指標 & 従来版 & 改善版\\\midrule
@@ -201,7 +200,7 @@ $e_k=((r_L-\hat r_L)^2+(r_R-\hat r_R)^2)/2$ を基本誤差とする。
 \end{tabular}
 \caption{正しい ID と別 ID が同じ画像に出る可能性があるため、二つの行は排他的ではない。}
 \end{table}
-合成画像の改善後の正解率は約36.0\%で、近い条件は56/82、遠い条件は3/82だった。
+向きを揃えた合成画像の改善後の正解率は約\SyntheticRate\%で、近い条件は\SyntheticNear/82、遠い条件は\SyntheticFar/82だった。
 したがって\textbf{小さいマーカーや細い列の認識は依然として弱い}。
 これは新しい実動画による評価の代わりではないが、改善版にも誤検出と見逃しが残ることを示している。
 
@@ -223,10 +222,10 @@ frame 131（約4.53秒）は改善版でも未検出である。
 \subsection*{6.1 主な成果物}
 \noindent\begin{tabularx}{\linewidth}{@{}p{31mm}X@{}}\toprule
 種類 & リポジトリルートからのパス\\\midrule
-改善後の動画 & \path{out/IMG_2422_improved/IMG_2422_improved.mp4}\\
-変更前後の比較 & \path{out/IMG_2422_improved/IMG_2422_before_after.mp4}\\
-全フレームの検出 & \path{out/IMG_2422_improved/improved.csv}、\path{improved.jsonl}\\
-中間処理の記録 & 同ディレクトリの \path{improved.stages.jsonl} と \path{improved_frame_*.png}\\
+改善後の動画 & \path{out/fair_comparison/IMG_2422_improved.mp4}\\
+変更前後の比較 & \path{out/fair_comparison/IMG_2422_fair_comparison.mp4}\\
+全フレームの検出 & \path{out/fair_comparison/improved_mirror.csv}、\path{improved_mirror.jsonl}\\
+中間処理の記録 & 同ディレクトリの \path{improved_mirror.stages.jsonl} と \path{improved_mirror_frame_*.png}\\
 集計値 & \path{report/generated/results.json}\\
 レポート & \path{report/cylindertag_report.tex} と同名PDF\\
 修正版試験片 & \path{models/cylindertag_d30.py}、\path{models/cylindertag_d30.stl}\\\bottomrule
@@ -239,18 +238,19 @@ LuaLaTeX を使用した。実行はリポジトリルートから行う。
 cmake -S . -B build/linux -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/linux -j 4
 ctest --test-dir build/linux --output-on-failure
-mkdir -p out/IMG_2422_improved
-build/linux/cylindertag_video IMG_2422.mov CTag_2f12c.marker \
-  out/IMG_2422_improved/improved 1 5 1 0,62,87,131,200,250 1
-python3 tests/generate_validation_video.py out/validation
-build/linux/cylindertag_video out/validation/validation.avi \
-  CTag_2f12c.marker out/validation/improved 1 5 1
+python3 report/recheck_mirror.py \
+  --original out/fair_comparison/original_build/fair_video \
+  --bugfix out/fair_comparison/bugfix_build/fair_video \
+  --improved build/linux/cylindertag_video
+python3 tests/generate_validation_video.py out/validation_canonical --canonical-only
+build/linux/cylindertag_video out/validation_canonical/validation.avi \
+  CTag_2f12c.marker out/validation_canonical/improved 1 5 1
 python3 report/build_figures.py
 cd report
 lualatex -interaction=nonstopmode -halt-on-error cylindertag_report.tex
 \end{Verbatim}
-\smallnote{図の生成には従来版・中間構成の解析結果も必要である。
-従来版は Git コミット \texttt{00b147f} のコードから再構築できる。
+\smallnote{再測定は \path{report/recheck_mirror.py} で再実行でき、入力・辞書・実行ファイルのSHA-256を保存する。
+従来版の検出ソースは元コミット \texttt{8fb42c9} と同一で、動画ドライバだけ \texttt{00b147f} を使った。
 動画は入力の平均FPSへ正規化しており、フレーム番号は0始まり。
 図の生成器は出力CSV/JSONLを読み、集計値を数値マクロとしてLaTeXへ渡す。
 各MP4について全266フレームを再デコードして確認し、PDFはPNGへ書き出して目視確認した。}
