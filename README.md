@@ -98,6 +98,10 @@ The initial STL's image-to-CAD reflection is corrected; the detector also handle
 already-printed reflected markers. No reprint is needed for this experiment.
 The independently tested bug fixes are proposed upstream in
 [PR #12](https://github.com/ShaoanWang/CylinderTag/pull/12).
+The larger algorithm experiment is submitted separately as
+[Draft PR #13](https://github.com/ShaoanWang/CylinderTag/pull/13), depending on #12.
+That upstream proposal preserves the legacy `detect()` path and exposes the
+experiment through opt-in `detectRobust()`.
 
 The [LaTeX report](report/cylindertag_report.tex) documents the pipeline,
 source bugs, references to ArUco/AprilTag, development comparisons, and remaining
