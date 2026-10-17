@@ -10,6 +10,9 @@
 #include<sstream>
 #include<iomanip>
 #include<fstream>
+#include<array>
+#include<cmath>
+#include<numeric>
 
 //OpenCV headers
 #include <opencv2/core.hpp>

@@ -17,21 +17,27 @@ include_directories(${CERES_INCLUDE_DIRS})
 include_directories(${PROJECT_SOURCE_DIR}/header)
 
 # Add source files
-add_executable(${PROJECT_NAME} 
-    main.cpp
+add_library(cylindertag_core
     CylinderTag.cpp
     corner_detector.cpp
     pose_estimation.cpp
 )
 
 # Link libraries
-target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS} ${CERES_LIBRARIES})
+target_link_libraries(cylindertag_core PUBLIC ${OpenCV_LIBS} ${CERES_LIBRARIES})
+target_include_directories(cylindertag_core PUBLIC ${PROJECT_SOURCE_DIR})
+add_executable(${PROJECT_NAME} main.cpp)
+target_link_libraries(${PROJECT_NAME} cylindertag_core)
 
 # Headless detector for recorded videos (no camera calibration / pose required).
 add_executable(cylindertag_video
     video_detect.cpp
-    CylinderTag.cpp
-    corner_detector.cpp
-    pose_estimation.cpp
 )
-target_link_libraries(cylindertag_video ${OpenCV_LIBS} ${CERES_LIBRARIES})
+target_link_libraries(cylindertag_video cylindertag_core)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(cylindertag_decoder_test tests/decoder_test.cpp)
+    target_link_libraries(cylindertag_decoder_test cylindertag_core)
+    add_test(NAME dictionary_decoder COMMAND cylindertag_decoder_test ${PROJECT_SOURCE_DIR}/CTag_2f12c.marker)
+endif()

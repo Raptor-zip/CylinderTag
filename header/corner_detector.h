@@ -15,6 +15,9 @@ struct featureInfo{
 
 struct MarkerInfo{
     int markerID = -1;
+    bool mirrored = false;
+    float decodeError = 0, decodeMargin = 0;
+    int supportColumns = 0;
     vector<int> featurePos, feature_ID, feature_ID_left, feature_ID_right;
     vector<vector<Point2f>> cornerLists;
     vector<Point2f> feature_center;
@@ -40,6 +43,8 @@ public:
     void connectedComponentLabeling(const Mat& src, vector<vector<Point>>& quadArea, int method = 0);
     
     void edgeExtraction(const Mat& img, vector<vector<Point>>& quadArea, vector<vector<Point2f>>& corners_init);
+    void contourQuads(const Mat& binary, vector<vector<Point2f>>& quads);
+    void refineQuads(const Mat& gray, vector<vector<Point2f>>& quads, int searchRadius);
     
     float quadJudgment(vector<corners_pre>& corners, int areaPixelNumber);
 
@@ -121,7 +126,8 @@ private:
     vector<float> corner_angles_1, corner_angles_2;
     float feature_angle, threshold_angle = 5, dist1_short, dist1_long, dist2_short, dist2_long, edge_angle1, edge_angle2, feature_length;
     Point2f feature_point1, feature_point2;
-    bool isVisited[1000], tag1, tag2;
+    vector<bool> isVisited;
+    bool tag1, tag2;
 
     // Feature organization
     featureInfo Fea;
@@ -140,7 +146,7 @@ private:
     // Marker organization
     int union_find(int input);
     float area(featureInfo feature);
-    int father[100];
+    vector<int> father;
     float area_ratio = 0.7, threshold_vertical = 0.5, center_angle, dist_fea;
     Point2f vector_center, vector_longedge;
     int pose[4] = {0, 1, 4, 5}, cnt, gap;
@@ -149,10 +155,6 @@ private:
 
     // Marker decoder
     float marker_angle, edge_last, edge_now, dist_center;
-    int code[20], pos_now, max_coverage, second_coverage, coverage_now, direc, legal_marker_len;
-    Point max_coverage_pos;
-    pos_with_ID Pos_ID;
-    pos_with_ID match_dictionary(int *code, Mat1i& state, int length, int legal_bits);
     bool find_father;
 };
 

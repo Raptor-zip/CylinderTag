@@ -40,43 +40,75 @@ STL generation, and manual white-to-black filament change instructions.
 
 ### Recorded-video detection and overlays
 
-The headless video tool decodes the full marker dictionary, writes per-frame
-IDs and corners, and draws decoded quadrilateral outlines. Green indicates
-the expected ID 0; orange indicates another decoded ID. Missed frames are
-not filled using tracking. This evaluates detection, without pose estimation
-or use of the supplied camera/model calibration.
+The headless detector processes full-resolution frames using local min/max
+thresholds at three window sizes, convex contour candidates, gradient-based
+edge line fitting, geometric column pairing, and continuous cross-ratio scores
+across all dictionary IDs, phases, directions, and reflections. It requires
+at least four supported columns and a margin over the runner-up hypothesis.
+The core detector has no preference for ID 0. The overlay tool highlights ID 0
+in green and other IDs in orange for this particular printed-strip experiment.
 
 ```bash
-cmake -S . -B build/linux
-cmake --build build/linux --target cylindertag_video -j 4
-mkdir -p out/IMG_2422
-# Arguments after prefix: input scale, threshold window, subpixel refinement (0/1).
-build/linux/cylindertag_video IMG_2422.mov CTag_2f12c.marker out/IMG_2422/baseline 1 5 1
-build/linux/cylindertag_video IMG_2422.mov CTag_2f12c.marker out/IMG_2422/scale1_plain 1 5 0
-python3 analyze_video_results.py out/IMG_2422
-ffmpeg -i out/IMG_2422/scale1_plain.avi -i IMG_2422.mov -map 0:v:0 -map '1:a:0?' -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac -movflags +faststart -shortest out/IMG_2422/IMG_2422_overlay.mp4
+cmake -S . -B build/linux -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build/linux -j 4
+ctest --test-dir build/linux --output-on-failure
+mkdir -p out/IMG_2422_improved
+build/linux/cylindertag_video IMG_2422.mov CTag_2f12c.marker out/IMG_2422_improved/improved 1 5 1 0,62,87,131,200,250 1
+python3 analyze_video_results.py out/IMG_2422_improved
+ffmpeg -i out/IMG_2422_improved/improved.avi -i IMG_2422.mov -map 0:v:0 -map '1:a:0?' -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac -movflags +faststart -shortest out/IMG_2422_improved/IMG_2422_improved.mp4
 ```
 
-Outputs are MJPEG AVI, CSV (IDs and detected-column counts), and JSONL
-(decoded column indices and full-resolution corner coordinates). Each run
-processes every decoded frame. The output uses constant average input FPS;
-displayed timestamps are frame index / FPS rather than original VFR timestamps.
-The input video is a manually supplied asset; generated analyses live in ignored `out/`.
+Optional positional arguments after the output prefix are input scale (1),
+base threshold tile width (5), gradient refinement enabled (1), comma-separated
+snapshot frame indices (empty by default), and multiple threshold windows
+(enabled by default; use 0 for a single window). The three tile widths are
+`base`, `2*base+1`, and `4*base+1`. Input must be 8-bit grayscale for the C++
+`detect()` API; the video tool converts decoded color frames automatically.
 
-For `IMG_2422.mov` (480 × 854, 266 frames, about 9.2 seconds), the standard
-settings output ID 0 in 1/266 frames (0.38%), with other IDs in 55 frames.
-Without subpixel refinement, ID 0 appears in frame 62 (about 2.15 s) with
-four decoded columns whose outlines visually align with the printed marker;
-other IDs appear in 24 frames. Seven scale/threshold/refinement configurations
-all output ID 0 in only one frame. This is **not stable recognition**, and this
-clip does not establish physical position or angle accuracy. The alternate
-settings were explored on this same clip, not validated on a held-out dataset.
+Outputs include MJPEG AVI, per-frame CSV and JSONL, `*.stages.jsonl` with
+candidate codes and cross ratios, and selected intermediate PNGs (grayscale,
+binary mask, quads, column pairs, candidate groups, and decoded results).
+PNG/statistics diagnostics describe the strongest threshold pass; the final
+result combines accepted spatial hypotheses from all passes. `selected_window`
+records that pass. JSONL detections include `mirrored`, `decode_error`,
+`decode_margin`, and `support_columns`. Corners in detection JSONL are expressed
+at original frame resolution. Output is constant average input FPS; timestamps
+are frame index / FPS rather than original VFR timestamps. Missing detections
+are not filled by tracking. Camera calibration and a physical model are needed
+separately for pose estimation; these overlays only evaluate ID detection.
 
-`out/IMG_2422/IMG_2422_comparison.mp4` shows standard settings on the left and
-subpixel refinement disabled on the right. `summary.json` contains all seven
-runs; `id0_frame_0062.png` shows the four-column detection. Both exported MP4s
-were decoded and checked to contain all 266 frames, and all seven CSV/JSONL
-pairs were checked for matching frame counts, marker counts, and ID 0 flags.
+On `IMG_2422.mov` (480 × 854, 266 frames), the original detector at commit
+`00b147f` output ID 0 in 1/266 frames (0.38%) and other IDs in 55 frames.
+The improved detector outputs ID 0 in **170/266 frames (63.91%)**, with no other
+IDs in this clip. Development used this same clip, so this is not a held-out
+performance estimate. The initial STL was vertically reflected relative to
+the image dictionary; its generator is corrected, and the detector supports
+already-printed reflected markers. No reprint is needed for this experiment.
+
+The [LaTeX report](report/cylindertag_report.tex) documents the pipeline,
+source bugs, references to ArUco/AprilTag, development comparisons, and remaining
+failures. The local PDF is `report/cylindertag_report.pdf`; comparison video is
+`out/IMG_2422_improved/IMG_2422_before_after.mp4`. Generated exports are ignored;
+user-supplied input videos remain outside those ignore rules.
+
+The decoder test covers 984 dictionary/phase/direction/reflection/missing-column
+cases plus rejection of short, blank, and tiny inputs. Independent synthetic
+image validation can be generated with:
+
+```bash
+python3 tests/generate_validation_video.py out/validation
+build/linux/cylindertag_video out/validation/validation.avi CTag_2f12c.marker out/validation/improved 1 5 1
+python3 tests/evaluate_validation.py out/validation/labels.json out/validation/improved.jsonl
+```
+
+The rendered-image check detects the correct ID in 59/164 positive images,
+with one wrong-ID frame, and no detections in 36 negative images. Small/distant
+markers remain a substantial limitation (3/82 correct in the smaller-size
+condition). This is not a measured comparison against ArUco/AprilTag detectors.
+
+Report figures are regenerated by `python3 report/build_figures.py`, which
+expects the saved development runs in `out/`, followed by two LuaLaTeX passes
+inside `report/`. Source commit `00b147f` can reconstruct the old detector.
 
 ## License
 

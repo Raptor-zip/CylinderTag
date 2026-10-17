@@ -321,6 +321,15 @@ __pycache__/
 
 # Reproducible analysis videos, per-frame logs, and diagnostic images.
 /out/
+
+# Reproducible report figures, metrics, and LuaLaTeX outputs.
+/report/generated/*.png
+/report/generated/*.json
+/report/generated/*.tex
+/report/cylindertag_report.pdf
+/report/cylindertag_report.aux
+/report/cylindertag_report.log
+/report/cylindertag_report.out
 *.pyc
 
 # Cake - Uncomment if you are using it

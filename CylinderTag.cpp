@@ -64,10 +64,74 @@ void CylinderTag::check_dictionary(const Mat1i& input_state)
 		return;
 }
 
-void CylinderTag::detect(const Mat& img, vector<MarkerInfo>& markers_info, int adaptiveThresh, const bool cornerSubPix, int cornerSubPixDist){
-	// Display
-    Mat imgMark(img.rows, img.cols, CV_32FC3);
-    cvtColor(img, imgMark, COLOR_GRAY2RGB);
+void CylinderTag::detect(const Mat& img, vector<MarkerInfo>& result, int adaptiveThresh, const bool refine, int radius) {
+    if(img.empty()||img.type()!=CV_8UC1||adaptiveThresh<1||radius<1)
+        throw std::invalid_argument("detect expects a nonempty 8-bit grayscale image and positive windows");
+    vector<int> windows={adaptiveThresh};
+    if(multiThreshold) windows={adaptiveThresh,2*adaptiveThresh+1,4*adaptiveThresh+1};
+    vector<MarkerInfo> hypotheses;
+    DetectionStats selected;
+    vector<MarkerInfo> selectedCandidates;
+    vector<pair<string,Mat>> selectedImages;
+    double bestStrength=-1e9;
+    for(int window : windows) {
+        vector<MarkerInfo> found;
+        detectSingle(img,found,window,refine,radius);
+        double strength=stats.features;
+        for(const auto& marker : found)
+            strength=std::max(strength,100.0*marker.supportColumns-marker.decodeError);
+        if(strength>bestStrength) {
+            bestStrength=strength; selected=stats;
+            selectedCandidates=candidateMarkers; selectedImages=stageImages;
+        }
+        hypotheses.insert(hypotheses.end(),found.begin(),found.end());
+    }
+    // Keep the strongest spatial hypothesis across threshold windows, without
+    // giving any preference to a particular ID (including the test strip ID).
+    std::stable_sort(hypotheses.begin(),hypotheses.end(),[](const auto& a,const auto& b){
+        if(a.supportColumns!=b.supportColumns) return a.supportColumns>b.supportColumns;
+        return a.decodeError<b.decodeError;
+    });
+    auto bounds=[](const MarkerInfo& marker) {
+        vector<Point2f> points;
+        for(const auto& column : marker.cornerLists) points.insert(points.end(),column.begin(),column.end());
+        return boundingRect(points);
+    };
+    result.clear();
+    for(const auto& candidate : hypotheses) {
+        const Rect box=bounds(candidate);
+        bool duplicate=false;
+        for(const auto& accepted : result) {
+            const Rect other=bounds(accepted);
+            const double overlap=(box&other).area();
+            if(overlap>.3*std::min(box.area(),other.area())) {duplicate=true;break;}
+        }
+        if(!duplicate) result.push_back(candidate);
+    }
+    stats=selected;candidateMarkers=std::move(selectedCandidates);stageImages=std::move(selectedImages);
+    if(debugCapture) {
+        Mat overlay; cvtColor(img,overlay,COLOR_GRAY2BGR);
+        for(const auto& marker : result) {
+            const auto color=Scalar(20,220,20);
+            for(const auto& column : marker.cornerLists) for(int half=0;half<2;++half) {
+                vector<Point> p(column.begin()+half*4,column.begin()+half*4+4);
+                polylines(overlay,p,true,color,2,LINE_AA);
+            }
+            const Rect box=bounds(marker);
+            putText(overlay,"ID "+std::to_string(marker.markerID)+(marker.mirrored?" MIRROR":""),
+                {box.x,std::max(15,box.y-7)},FONT_HERSHEY_SIMPLEX,.5,color,2,LINE_AA);
+        }
+        stageImages.push_back({"06_decoded",overlay});
+    }
+}
+
+void CylinderTag::detectSingle(const Mat& img, vector<MarkerInfo>& markers_info, int adaptiveThresh, const bool cornerSubPix, int cornerSubPixDist){
+    stats = DetectionStats{};
+    stats.selectedWindow=adaptiveThresh;
+    stageImages.clear();
+    if(debugCapture) stageImages.push_back({"01_gray",img.clone()});
+    candidateMarkers.clear();
+    markers_info.clear();
 
 	//Refresh
 	quadAreas_labeled.clear();
@@ -76,86 +140,90 @@ void CylinderTag::detect(const Mat& img, vector<MarkerInfo>& markers_info, int a
 	markers.clear();
 
 	Mat img_resize, img_float;
-    resize(img, img_resize, Size(img.cols / 2, img.rows / 2), 0.5, 0.5, INTER_CUBIC);
-    img_resize.convertTo(img_resize, CV_32FC1, 1.0 / 255);
+    img.convertTo(img_resize, CV_32FC1, 1.0 / 255);
 
     Mat img_binary(img_resize.rows, img_resize.cols, CV_8UC1);
     detector.adaptiveThreshold(img_resize, img_binary, adaptiveThresh);
+    if(debugCapture) stageImages.push_back({"02_binary",img_binary.clone()});
 	detector.connectedComponentLabeling(img_binary, quadAreas_labeled);
+    stats.components = quadAreas_labeled.size();
 
-    detector.edgeExtraction(img_resize, quadAreas_labeled, corners);
+    detector.contourQuads(img_binary, corners);
+    if (cornerSubPix) detector.refineQuads(img_resize, corners, cornerSubPixDist);
+    stats.quads = corners.size();
+    if(debugCapture) {
+        Mat overlay; cvtColor(img,overlay,COLOR_GRAY2BGR);
+        for(const auto& quad : corners) {
+            vector<Point> points(quad.begin(),quad.end());
+            polylines(overlay,points,true,Scalar(20,220,20),1,LINE_AA);
+        }
+        stageImages.push_back({"03_quads",overlay});
+    }
 	if (corners.empty()) {
-		cout << "No corner detected!" << endl;
 		return;
 	}
 
 	detector.featureRecovery(corners, features);
+    for (auto& feature : features) {
+        auto& p=feature.corners;
+        const Point2f longitudinal=(p[0]+p[1]-p[4]-p[5])/2;
+        const bool vertical=std::abs(longitudinal.y)>=std::abs(longitudinal.x);
+        const auto along=[&](Point2f q){ return vertical?q.y:q.x; };
+        const auto across=[&](Point2f q){ return vertical?q.x:q.y; };
+        // Contour enumeration is not a top-to-bottom scan. Canonicalize the
+        // two halves before decoding instead of depending on component order.
+        if(along(p[0]+p[1])>along(p[4]+p[5]))
+            for(int k=0;k<4;++k) std::swap(p[k],p[k+4]);
+        if(across(p[0])>across(p[1])) {
+            std::swap(p[0],p[1]); std::swap(p[2],p[3]);
+            std::swap(p[4],p[5]); std::swap(p[6],p[7]);
+        }
+        feature.feature_center=(p[0]+p[1]+p[4]+p[5])/4;
+        feature.feature_angle=std::atan2((p[0]+p[1]-p[4]-p[5]).y,
+                                        (p[0]+p[1]-p[4]-p[5]).x)*180/CV_PI;
+    }
+    stats.features = features.size();
+    if(debugCapture) {
+        Mat overlay; cvtColor(img,overlay,COLOR_GRAY2BGR);
+        for(size_t i=0;i<features.size();++i) {
+            const auto& f=features[i];
+            for(int half=0;half<2;++half) {
+                vector<Point> points(f.corners.begin()+half*4,f.corners.begin()+half*4+4);
+                polylines(overlay,points,true,half?Scalar(0,220,255):Scalar(255,220,0),2,LINE_AA);
+            }
+            putText(overlay,std::to_string(i),f.feature_center,FONT_HERSHEY_SIMPLEX,.4,Scalar(0,0,255),1,LINE_AA);
+        }
+        stageImages.push_back({"04_pairs",overlay});
+    }
 	if (features.size() < this->featureSize) {
-		cout << "No feature detected!" << endl;
 		return;
 	}
 
-	detector.cornerObtain(img, features);
-
-	if (cornerSubPix) {
-		img.convertTo(img_float, CV_32FC1, 1.0 / 255);
-		detector.edgeRefine(img_float, features, features, cornerSubPixDist);
-	}
-	
-	//Plot feature
-	/*
-	for (int i = 0; i < features.size(); i++) {
-		line(imgMark, features[i].corners[0], features[i].corners[1], Scalar(0, 255, 255), 2.5);
-		line(imgMark, features[i].corners[1], features[i].corners[2], Scalar(0, 255, 255), 2.5);
-		line(imgMark, features[i].corners[2], features[i].corners[7], Scalar(0, 255, 255), 2.5);
-		line(imgMark, features[i].corners[7], features[i].corners[4], Scalar(0, 255, 255), 2.5);
-		line(imgMark, features[i].corners[4], features[i].corners[5], Scalar(0, 255, 255), 2.5);
-		line(imgMark, features[i].corners[5], features[i].corners[6], Scalar(0, 255, 255), 2.5);
-		line(imgMark, features[i].corners[6], features[i].corners[3], Scalar(0, 255, 255), 2.5);
-		line(imgMark, features[i].corners[3], features[i].corners[0], Scalar(0, 255, 255), 2.5);
-		for (int k = 0; k < 8; k++)
-			circle(imgMark, features[i].corners[k], 1, Scalar(175, 92, 196), -1);
-		ostringstream oss;
-		oss << i;
-		putText(imgMark, oss.str(), features[i].feature_center, FONT_ITALIC, 0.6, Scalar(250, 250, 250), 2);
-	}
-	imshow("Feature Organization", imgMark);
-	waitKey(1);*/
 
 	detector.markerOrganization(features, markers);
+    candidateMarkers = markers;
+    stats.groups = markers.size();
+    if(debugCapture) {
+        Mat overlay; cvtColor(img,overlay,COLOR_GRAY2BGR);
+        for(size_t i=0;i<markers.size();++i) {
+            const auto color=Scalar(70+(i*73)%180,70+(i*47)%180,70+(i*113)%180);
+            for(size_t k=0;k<markers[i].cornerLists.size();++k) {
+                const auto& p=markers[i].cornerLists[k];
+                for(int half=0;half<2;++half) {
+                    vector<Point> points(p.begin()+half*4,p.begin()+half*4+4);
+                    polylines(overlay,points,true,color,2,LINE_AA);
+                }
+                putText(overlay,std::to_string(markers[i].feature_ID[k]),markers[i].feature_center[k],FONT_HERSHEY_SIMPLEX,.4,Scalar(0,0,255),1,LINE_AA);
+            }
+        }
+        stageImages.push_back({"05_groups",overlay});
+    }
+    for (const auto& candidate : markers)
+        for (int code : candidate.feature_ID) stats.validColumns += code >= 0;
 
 	detector.markerDecoder(markers, markers, this->state, this->featureSize);
 	markers_info = markers;
 
-	//Plot marker
-	/*
-	imgMark = img.clone();
-	cvtColor(img, imgMark, COLOR_GRAY2RGB);
-	for (int i = 0; i < markers.size(); i++) {
-		for (int j = 0; j < markers[i].cornerLists.size(); j++) {
-			line(imgMark, markers[i].cornerLists[j][0], markers[i].cornerLists[j][1], Scalar(200, 120, 120), 3.5);
-			line(imgMark, markers[i].cornerLists[j][1], markers[i].cornerLists[j][2], Scalar(200, 120, 120), 3.5);
-			line(imgMark, markers[i].cornerLists[j][2], markers[i].cornerLists[j][7], Scalar(200, 120, 120), 3.5);
-			line(imgMark, markers[i].cornerLists[j][7], markers[i].cornerLists[j][4], Scalar(200, 120, 120), 3.5);
-			line(imgMark, markers[i].cornerLists[j][4], markers[i].cornerLists[j][5], Scalar(200, 120, 120), 3.5);
-			line(imgMark, markers[i].cornerLists[j][5], markers[i].cornerLists[j][6], Scalar(200, 120, 120), 3.5);
-			line(imgMark, markers[i].cornerLists[j][6], markers[i].cornerLists[j][3], Scalar(200, 120, 120), 3.5);
-			line(imgMark, markers[i].cornerLists[j][3], markers[i].cornerLists[j][0], Scalar(200, 120, 120), 3.5);
-			for (int k = 0; k < 8; k++)
-				circle(imgMark, markers[i].cornerLists[j][k], 3, Scalar(107, 90, 219), -1);
-			ostringstream oss;
-			oss << std::setprecision(4) << markers[i].feature_ID_left[j];
-			putText(imgMark, oss.str(), markers[i].cornerLists[j][0], FONT_ITALIC, 0.6, Scalar(250, 250, 250), 2);
-			oss.str("");
-			oss << std::setprecision(4) << markers[i].feature_ID_right[j];
-			putText(imgMark, oss.str(), markers[i].cornerLists[j][4], FONT_ITALIC, 0.6, Scalar(250, 250, 90), 2);
-			oss.str("");
-			oss << markers[i].featurePos[j];
-			putText(imgMark, oss.str(), markers[i].cornerLists[j][1], FONT_ITALIC, 0.6, Scalar(20, 100, 155), 2);
-		}
-	}
-	imshow("Output", imgMark);
-	waitKey(1);*/
 }
 
 void CylinderTag::loadModel(const string& path, vector<ModelInfo>& reconstruct_model){
