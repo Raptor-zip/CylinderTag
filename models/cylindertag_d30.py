@@ -39,7 +39,7 @@ def boundary(symbol):
     return PATTERN_HEIGHT * (1 + (root if symbol >= 4 else -root)) / 2
 
 
-def black_polygons():
+def image_polygons():
     codes = marker_codes()
     pitch = STRIP_LENGTH / len(codes)
     bar_width = pitch / 1.5
@@ -53,6 +53,13 @@ def black_polygons():
                (x1, m + right - half_gap), (x0, m + left - half_gap)]
         yield [(x0, m + left + half_gap), (x1, m + right + half_gap),
                (x1, m + h), (x0, m + h)]
+
+
+def black_polygons():
+    # MATLAB raster Y points down; CAD viewed from +Z has Y pointing up.
+    # Flip that axis to avoid printing the mirror image of the dictionary.
+    for points in image_polygons():
+        yield list(reversed([(x, STRIP_HEIGHT-y) for x, y in points]))
 
 
 def gen_step():
@@ -83,5 +90,5 @@ if __name__ == "__main__":
     svg = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {STRIP_LENGTH} {STRIP_HEIGHT}" width="950" height="440">',
            f'<rect width="{STRIP_LENGTH}" height="{STRIP_HEIGHT}" fill="white"/>']
     svg += ['<polygon fill="black" points="' + ' '.join(f'{x},{y}' for x,y in pts) + '"/>'
-            for pts in black_polygons()]
+            for pts in image_polygons()]
     Path(__file__).with_suffix('.svg').write_text('\n'.join(svg + ['</svg>']))
