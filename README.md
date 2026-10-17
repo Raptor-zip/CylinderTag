@@ -32,6 +32,12 @@ We provide a simple MATLAB-based marker generator where the user can modify the 
 
 We have defined a CylinderTag class in the recognizer, which contains the functions detect, estimatePose, drawAxis, etc. You can find its usage and definition in the source file.
 
+### Thin 3D-printed test marker
+
+See [the PLA single-nozzle test strip](models/README.md) for a parametric ID 0
+marker designed to wrap around an approximately 30 mm diameter cylinder,
+STL generation, and manual white-to-black filament change instructions.
+
 ## License
 
 [MIT](LICENSE)

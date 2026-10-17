@@ -375,3 +375,12 @@ FodyWeavers.xsd
 /photo
 /build
 build/CMakeCache.txt
+
+# Local CAD runtime and reproducible model exports (keep source/input assets).
+/.venv-cad/
+/models/*.step
+/models/*.stl
+/models/*.svg
+/models/.*.step.*
+/models/*_20*.png
+__pycache__/
